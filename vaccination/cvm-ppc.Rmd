@@ -1,63 +1,124 @@
 ---
-title: "cvm-ppc"
-author: "Acosta, Pisuña, Imbacuan, Guerra - Agrocalidad, Universidad São Paulo"
+title: "Reporte dinámico vacunación contra la Peste porcina clásica"
+author: "Coordinación general de sanidad animal - Agrocalidad (Versión 0.0 Pruebas - Sin informaciòn completa)"
 date: "`r Sys.Date()`"
 output:
   html_document: 
     toc: yes
-    theme: journal
+    toc_float: true
+    theme: cerulean
+    fig_caption: yes
+    number_sections: yes
+    code_folding: hide
   word_document: default
+  html_notebook: 
+    toc: yes
 ---
-# Proyecto de erradicación de Peste porcina clásica
-## Reporte dinámico de catastro, vacunación y movilización
+# Erradicación de Peste porcina clásica
 ```{r setup, warning=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
+## De que se trata este reporte?
+La coordinación general de sanidad animal de AGROCALIDAD, mensualmente procesa información nacional de vacunación contra PPC, este reporte emitido mensualmente apoya el análisis de información y seguimiento al proceso de erradicación de la Peste porcina clásica y la prevención de la Peste porcina africana. Los técnicos nacionales del Proyecto PROZEC revisan, depuran y crean este reporte utilizando lenguaje R y RStudio con los paquetes indicadas como 'libraries', las bases de datos son obtenidas de los sistemas Oficiales GUIA y SIZSE.
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+Este es un documento R Markdown. Markdown es una sintaxis de formatación simple para HTML, PDF, y MS Word. Para más detalles en el uso de R Markdown visite <http://rmarkdown.rstudio.com>.
 
-```{r, include=FALSE}
-library(dplyr); library(tidyr); library(lubridate); library(scales); library(ggplot2); library(readxl); library(lubridate); library(tidyverse); library(plotly);library(crosstalk); library(DT); library(raster); library(mapview)
+## A quién está dirigido este reporte?
+Este reporte es de uso de los técnicos nacionales y provinciales de Agrocalidad. Es también accesible por los operadores de vacuanción, productores industriales y pequeños productores.
+
+```{r, message=FALSE}
+library(dplyr); library(tidyr); library(lubridate); library(scales); library(ggplot2); library(readxl); library(lubridate); library(tidyverse); library(plotly); library(crosstalk); library(DT); library(raster); library(mapview); library(leaflet); library(rmapshaper);library(sjmisc)
 ```
 
-## Directorio de trabajo y archivo vacunación
+## Directorio de trabajo y archivo vacunación utilizado para análisis
 ```{r pressure, echo=TRUE}
 setwd("~/Dropbox/1.Epidat/Consultoria ASPE/Informes dinámicos/cvmppc/")
-vac <- read.csv("vac.xls0.csv")
+vac1 <- read.csv("ene-2023.xls0.csv") #244269 registros
+vac2 <- read.csv("feb-2023.xls0.csv") #254608
+vac3 <- read.csv("mar-2023.csv") #298143
+vac <- rbind(vac1, vac2, vac3)
+rm(vac1, vac2, vac3)
+# vac <- read.csv("feb-2023.xls0.csv")
 ```
-## Cuales son mis variables en el archivo vacunación
+
+## Cuáles son mis variables en el archivo vacunación
 ```{r}
 colnames(vac)
 ```
 
-# Vacunación
-## Cuántos son certificados anulados (los elimino para continuar el análisis)
+# Generalidades de la vacunación
+## Cuántos certificados fueron anulados (serán eliminados para continuar el análisis)
 ```{r}
 length(vac[vac$Estado != "anulado",])
 vac <- vac[vac$Estado != "anulado",]
+vac$year <- year(dmy(vac$Fecha.Vacunación))
+vac$month <- month(dmy(vac$Fecha.Vacunación))
 ```
-# Cuál es el mes de registro de la información que analizaré y el número de vacunados?
-```{r, echo=FALSE}
+## Cuál es el mes de registro de la información que analizaré y el número de vacunados?
+```{r}
 vac %>%
   group_by(
     registro=floor_date(dmy_hms(Fecha.Registro), unit = "month")) %>%
   summarise(vacunados=length(Identificador.Producto))
 ```
-# Número de CUVS
+# Visualizador espacial del número de dosis aplicadas
+## Preparación de datos
+```{r}
+vigi <- vac %>%
+  group_by(provincia = Provincia.Sitio, 
+           canton = Cantón.Sitio, 
+           parroquia = Parroquia.Sitio) %>%
+  summarise(cantidad=length(unique(Identificador.Producto)))
+
+source("~/Dropbox/1.Epidat/Consultoria ASPE/Informes dinámicos/cvmppc/passthemap_guia.R")
+```
+## Número de Parroquias por Provincias en el mapa
+```{r}
+table(ec3@data$provincia)
+ec3@data <- ec3@data[c(1,9,11,13,15)]
+ec3 <- subset(ec3, provincia != "GALAPAGOS")
+ec3 <- ms_simplify(ec3)
+```
+
+
+Este es un mapa dinamico, puede hacer zoom y consultar su parroquia de interes.
+De un click al mapa y revise la información por parroquia.
+Puede cambiar entre los mapas para mejor visualización, mayor información disponible en los próximos indicadores del reporte.
+```{r eval=TRUE}
+mq <- mapview(ec3, zcol = "cantidad", alpha.regions = 0.3)
+mq
+```
+
+
+## Número de CUVS
 ```{r}
 length(unique(vac$Número.Certificado)) #857667
 ```
-# Número de cerdos vacunados
+## Número de cerdos vacunados
 ```{r}
 length(unique(vac$Identificador.Producto)) #297596
 ```
-
-# Añado año y mes de vacunación
+## Número de cerdos vacunados por categoría
 ```{r}
-vac$year <- year(dmy(vac$Fecha.Vacunación))
-vac$month <- month(dmy(vac$Fecha.Vacunación))
+vac %>% 
+  group_by(registro=floor_date(dmy_hms(Fecha.Registro), unit = "month"),
+Producto) %>% 
+  summarise(animales=length(Identificador.Producto)) %>% 
+            mutate(Porcentaje=100*round(animales/sum(animales),4))
+```
+
+## Gráfico
+```{r}
+  ggplotly(vac %>% 
+  group_by(registro=floor_date(dmy_hms(Fecha.Registro), unit = "month"),
+           Producto,
+           Tipo.Vacunación) %>% 
+  summarise(animales=n()) %>% 
+  ggplot()+
+  geom_col(aes(Producto, animales))+
+  facet_wrap(~Tipo.Vacunación)+
+  theme(axis.text.x = element_text(angle=90)))
 ```
 
 # Número de predios vacunados
@@ -65,17 +126,14 @@ vac$month <- month(dmy(vac$Fecha.Vacunación))
 vac %>%
   summarise(predios=length(unique(
     paste(Identificación.Propietario, Nombre.Sitio))))
-
 ```
-
-
-## Calculando la diferencia entre fecha vacunación, fecha registro
+# Diferencia entre fecha vacunación,y fecha registro
 ```{r}
 vac$dif_vac_reg <- as.numeric(dmy(substr(vac$Fecha.Registro,1,10)) - dmy(vac$Fecha.Vacunación))
 summary(vac$dif_vac_reg)
 ```
-# Diferencia de ingreso de los CUV (mayor a 30 dias)
-# Muestra el porcentaje de certificados que son ingresados en más de 30 días
+## Diferencia de ingreso de los CUV (mayor a 30 dias)
+Muestra el porcentaje de certificados que son ingresados en más de 30 días
 ```{r rows.print = n}
 vac_diferencia_registro <- vac %>% 
   group_by(Provincia.Sitio) %>% 
@@ -88,7 +146,7 @@ vac_dif <- datatable(vac_diferencia_registro)
 vac_dif
 ```
 
-# Distribución de la diferencia de ingreso
+## Boxplots de distribución de diferencia de ingreso
 ```{r}
 ggplotly(vac %>% 
   group_by(Provincia.Sitio, dif_vac_reg, Número.Certificado) %>% 
@@ -111,7 +169,8 @@ vac %>%
     registro=floor_date(dmy_hms(Fecha.Registro), unit = "month")) %>%
   summarise(vacunados=length(Identificador.Producto))
 ```
-# Número de vacunados de acuerdo al mes de vacunación
+## Número de vacunados de acuerdo al mes de vacunación
+## Tabla
 ```{r knitr::knit_print()}
 vac_mes_registro <- vac %>%
   group_by(vacunacion=floor_date(dmy(Fecha.Vacunación), unit = "month")) %>%
@@ -120,21 +179,9 @@ vac_mes <- datatable(vac_mes_registro)
 vac_mes
 
 ```
-# Número de vacunados y CUVs de acuerdo al mes de vacunación y provincia
-```{r}
-datatable(vac %>%
-  group_by(Provincia.Sitio,
-    vacunacion=floor_date(dmy(Fecha.Vacunación), unit = "month")) %>%
-  summarise(vacunados=length(Identificador.Producto),
-            CUV=length(unique(Número.Certificado))) %>% 
-  arrange(desc(CUV)))
-
-
-
-```
-
-# Gráfico del número de animales vacunados en su fecha de vacunación
-# Su fecha de registro obedece a la fecha de este reporte
+## Número de animales vacunados en su fecha de vacunación
+## Gráfico
+Su fecha de registro obedece a la fecha de este reporte
 ```{r}
 registro <-vac %>%
   group_by(
@@ -147,67 +194,74 @@ registro <-vac %>%
   geom_col(aes(vacunacion, vacunados))+
   theme_minimal()+
   theme(axis.text.x = element_text(angle=90))+
-  facet_wrap(~Provincia.Sitio)
+  facet_wrap(~Provincia.Sitio, ncol=3)
 
 ggplotly(registro)
 
 ```
-# Número de animales vacunados por mes
+## Número de vacunados y CUVs de acuerdo al mes de vacunación y provincia
+## Tabla
 ```{r}
-vac %>% 
+datatable(vac %>%
+  group_by(Provincia.Sitio,
+    vacunacion=floor_date(dmy(Fecha.Vacunación), unit = "month")) %>%
+  summarise(vacunados=length(Identificador.Producto),
+            CUV=length(unique(Número.Certificado))) %>% 
+  arrange(desc(CUV)))
+```
+
+## Número de animales vacunados por mes
+```{r, include=TRUE}
+ggplotly(vac %>% 
   group_by(mes=floor_date(dmy(Fecha.Vacunación), unit = "month")) %>% 
-  # filter(year > 2022) %>% 
-  summarise(vacunados=length(Provincia.Sitio)) %>% 
+    summarise(vacunados=length(Provincia.Sitio)) %>% 
   ggplot()+
   geom_line(aes(mes, vacunados))+
-  geom_line(aes(mes, mean(vacunados)), colour="grey")
-```
-# Tabla número de vacunados mensual
-```{r}
-vac %>% 
-  group_by(mes=floor_date(dmy(Fecha.Vacunación), unit = "week")) %>% 
-    summarise(vacunados=length(Provincia.Sitio))
+  geom_point(aes(mes, vacunados), color="red")+
+  geom_line(aes(mes, mean(vacunados)), colour="blue"))
 ```
 
 ## Número de animales vacunados por semana
-```{r}
-vac_semanal <- vac %>% 
+## Gráfico
+```{r, include=TRUE}
+ggplotly(vac %>% 
   group_by(semana=floor_date(dmy(Fecha.Vacunación), unit = "week")) %>% 
     summarise(vacunados=length(Provincia.Sitio)) %>% 
   ggplot()+
   geom_line(aes(semana, vacunados))+
+  geom_point(aes(semana, vacunados, color="red"))+
   geom_line(aes(semana, mean(vacunados)), colour="blue")+
-  theme_minimal()
-
-ggplotly(vac_semanal)
-
+  theme_minimal())
 ```
-#Tabla vacunados por semana
-```{r}
+## Tabla
+```{r, include=TRUE}
 datatable(vac %>% 
   group_by(semana=floor_date(dmy(Fecha.Vacunación), unit = "week")) %>% 
     summarise(vacunados=length(Provincia.Sitio)))
 ```
-
+# Número de vacunados por mes de vacunación
+## Gráfico
 ```{r}
-vac %>% 
+ggplotly(vac %>% 
   group_by(mes=floor_date(dmy(Fecha.Vacunación), unit = "week")) %>% 
     summarise(vacunados=length(Provincia.Sitio)) %>% 
   ggplot()+
   geom_line(aes(mes, vacunados))+
+  geom_point(aes(mes, vacunados, color="red"))+
   geom_line(aes(mes, mean(vacunados)), colour="blue")+
-  theme_minimal()
-
+  theme_minimal())
 ```
 
-# Número de animales vacunados por tipo de vacunación y fecha de vacunación
+# Número de animales vacunados por tipo y fecha de vacunación
+## Gráfico
 ```{r}
-vac %>% 
+ggplotly(vac %>% 
   group_by(mes=floor_date(dmy(Fecha.Vacunación), unit = "month"), Tipo.Vacunación) %>% 
   summarise(vacunados=length(Provincia.Sitio)) %>% 
   ggplot()+
   geom_line(aes(mes, vacunados))+
-  facet_wrap(~Tipo.Vacunación, nrow=4)
+  geom_point(aes(mes, vacunados, color="red"))+
+  facet_wrap(~Tipo.Vacunación, nrow=4))
 ```
 
 # Número de animales vacunados por tipo de vacunación y fecha de vacunación
@@ -228,6 +282,7 @@ vac_tipo_fecha <- vac %>%
 
 ggplotly(vac_tipo_fecha)
 ```
+
 #Tabla vacunación por fecha de vacunación
 ```{r}
 datatable(vac %>% 
@@ -236,25 +291,24 @@ datatable(vac %>%
            Tipo.Vacunación) %>% 
   summarise(vacunados=length(Identificador.Producto)))
 ```
-#Tabla vacunación por fecha de registro
+
+# Tabla vacunación por fecha de registro
 ```{r}
-vac %>% 
+datatable(vac %>% 
   group_by(mes_registro=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"),
             Tipo.Vacunación) %>% 
-  summarise(vacunados=length(Identificador.Producto))
+  summarise(vacunados=length(Identificador.Producto)))
 ```
-
 
 # Vacunación total del reporte
 ```{r}
-vac %>% 
-  group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), Tipo.Vacunación) %>% 
-  # filter(Provincia.Sitio == "Pichincha") %>% 
-  # filter(year > 2015) %>% 
+ggplotly(vac %>% 
+  group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"),
+           Tipo.Vacunación) %>% 
   summarise(vacunados=length(Identificador.Producto)) %>% 
   ggplot()+
   geom_col(aes(mes, vacunados))+
-  facet_wrap(~Tipo.Vacunación)
+  facet_wrap(~Tipo.Vacunación), ncol=1)
 
 ```
 # Tabla Vacunación total del reporte
@@ -265,25 +319,22 @@ vac %>%
 ```
 
 # Vacunación total por provincia
+## Gráfico
 ```{r}
 ggplotly(vac %>% 
   group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), Tipo.Vacunación, Provincia.Sitio) %>% 
   mutate(Provincia.Sitio = (dplyr::recode(Provincia.Sitio, "Santo Domingo de los Tsáchilas" = "Santo Domingo"))) %>% 
-    # filter(Provincia.Sitio == "Pichincha") %>% 
-  # filter(year > 2015) %>% 
   summarise(vacunados=length(Identificador.Producto)) %>% 
   arrange(desc(vacunados)) %>% 
   ggplot()+
-  geom_col(aes(Provincia.Sitio, vacunados))+
+  geom_col(aes(Provincia.Sitio, vacunados, fill=(Tipo.Vacunación)))+
   theme(axis.text.x = element_text(angle=90)))
 ```
-# Tabla vacunación total por provincia
+## Tabla
 ```{r}
 datatable(vac %>% 
   group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), Tipo.Vacunación, Provincia.Sitio) %>% 
   mutate(Provincia.Sitio = (dplyr::recode(Provincia.Sitio, "Santo Domingo de los Tsáchilas" = "Santo Domingo"))) %>% 
-    # filter(Provincia.Sitio == "Pichincha") %>% 
-  # filter(year > 2015) %>% 
   summarise(vacunados=length(Identificador.Producto)))
 ```
 
@@ -292,9 +343,7 @@ datatable(vac %>%
 vac_pro_tipo <- vac %>% 
   group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), Tipo.Vacunación, Provincia.Sitio) %>% 
   mutate(Provincia.Sitio = (dplyr::recode(Provincia.Sitio, "Santo Domingo de los Tsáchilas" = "Santo Domingo"))) %>% 
-    # filter(Provincia.Sitio == "Pichincha") %>% 
-  # filter(year > 2015) %>% 
-  summarise(vacunados=length(Identificador.Producto)) %>% 
+    summarise(vacunados=length(Identificador.Producto)) %>% 
   arrange(desc(vacunados)) %>% 
   ggplot()+
   geom_col(aes(Provincia.Sitio, vacunados))+
@@ -303,7 +352,8 @@ vac_pro_tipo <- vac %>%
 
 ggplotly(vac_pro_tipo)
 ```
-# Vacunación total por canton
+# Vacunación total por Cantón
+## Gráfico
 ```{r}
 vac_pro_tipo_cant <- vac %>% 
   group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), Tipo.Vacunación, Provincia.Sitio, Cantón.Sitio) %>% 
@@ -318,7 +368,7 @@ vac_pro_tipo_cant <- vac %>%
 ggplotly(vac_pro_tipo_cant)
 ```
 
-# Tabla Vacunación total por canton
+## Tabla
 ```{r}
 datatable(vac %>% 
   group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"),
@@ -328,8 +378,9 @@ datatable(vac %>%
 ```
 
 # Vacunación total por parroquia
+## Gráfico
 ```{r}
-vac_pro_tipo_parro <- vac %>% 
+ggplotly(vac %>% 
   group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), Tipo.Vacunación, Provincia.Sitio, Cantón.Sitio, Parroquia.Sitio) %>% 
   filter(Provincia.Sitio == "Pichincha") %>% 
     filter(Cantón.Sitio == "Quito") %>% 
@@ -337,20 +388,21 @@ vac_pro_tipo_parro <- vac %>%
   ggplot()+
   geom_col(aes(Parroquia.Sitio, vacunados))+
   theme(axis.text.x = element_text(angle=90))+
-  facet_wrap(~Tipo.Vacunación, ncol = 1)
-
-ggplotly(vac_pro_tipo_parro)
+  facet_wrap(~Tipo.Vacunación, ncol = 1))
 ```
-
-# Tabla Vacunación total por parroquia
+## Tabla
 ```{r}
+length(unique(paste(vac$Identificación.Propietario, vac$Nombre.Sitio)))
+
 datatable(vac %>% 
   group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), 
            Tipo.Vacunación, Provincia.Sitio, Cantón.Sitio, Parroquia.Sitio) %>% 
-      summarise(vacunados=length(Identificador.Producto)))
+      summarise(vacunados=length(Identificador.Producto),
+                predios=length(unique(paste(Identificación.Propietario, Nombre.Sitio)))))
 ```
 
-# Tabla Vacunadores por tipo de Vacunación
+# Vacunadores por tipo de Vacunación
+## Tabla
 ```{r}
 datatable(vac %>% 
   group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"),
@@ -359,29 +411,19 @@ datatable(vac %>%
   arrange(desc(vacunados)))
 ```
 
-#Estadisticas sobre número de dosis aplicadas por tipos de vacunadores
+# Estadisticas sobre número de dosis aplicadas por tipos de vacunadores
 ```{r}
 vac %>% 
-  group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), 
-           Tipo.Vacunación, Vacunador) %>% 
+  group_by(Tipo.Vacunación, Vacunador) %>% 
     summarise(vacunados=length(Identificador.Producto)) %>% 
 sjmisc::descr()
+
 # n=número de vacunadores
 # mean= número de vacunas aplicadas por cada vacunador en media
 ```
 
-#Estadisticas sobre número de dosis aplicadas por tipos de vacunadores
-```{r}
-vac %>% 
-  group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), 
-           Tipo.Vacunación, Vacunador) %>% 
-  summarise(vacunados=length(Identificador.Producto)) %>% 
-sjmisc::descr()
-# n=número de vacunadores
-# mean= número de vacunas aplicadas por cada vacunador en media
-```
-
-#Estadisticas sobre número de dosis aplicadas por vacunadores por provincia y tipo de vacunación
+# Estadisticas sobre número de dosis aplicadas por vacunadores por provincia y tipo de vacunación
+## Gráfico
 ```{r}
 ggplotly(vac %>% 
   group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), 
@@ -397,7 +439,7 @@ ggplotly(vac %>%
 # n=número de vacunadores
 # mean= número de vacunas aplicadas por cada vacunador en media
 ```
-
+## Tabla
 ```{r}
 datatable(vac %>% 
   group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), 
@@ -408,7 +450,8 @@ datatable(vac %>%
               Media_vacunados_x_vacunador=round((vacunados/length(unique(Vacunador))),0)))
 ```
 
-#Estadisticas sobre número de dosis aplicadas por distribuidores (Operadores) por provincia y tipo de vacunacíon
+# Estadisticas sobre número de dosis aplicadas por distribuidores (Operadores) por provincia y tipo de vacunación
+## Gráfico
 ```{r}
 ggplotly(vac %>% 
   group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), 
@@ -422,11 +465,11 @@ ggplotly(vac %>%
   facet_wrap(~Tipo.Vacunación, ncol=1))
 ```
 
-#Estadisticas sobre número de CUVs digitados por provincia y tipo de vacunacíon
+# Estadisticas sobre número de CUVs digitados por provincia y tipo de vacunación
+## Gráfico
 ```{r}
 ggplotly(vac %>% 
-  group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), 
-           Tipo.Vacunación, Provincia.Sitio) %>% 
+  group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), Tipo.Vacunación, Provincia.Sitio) %>% 
     mutate(Provincia.Sitio = (dplyr::recode(Provincia.Sitio, "Santo Domingo de los Tsáchilas" = "Santo Domingo"))) %>% 
     summarise(vacunados=length(Identificador.Producto),
             Media_CUV_digitados=round((vacunados/length(unique(Digitador)))),0) %>% 
@@ -435,8 +478,7 @@ ggplotly(vac %>%
     theme(axis.text.x = element_text(angle=90))+
   facet_wrap(~Tipo.Vacunación, ncol=1))
 ```
-
-
+## Tabla
 ```{r}
 vac_digitador <- vac %>% 
   group_by(mes=floor_date(dmy(substr(vac$Fecha.Registro,1,10)), unit = "month"), 
@@ -452,20 +494,30 @@ ggplotly(ggplot(vac_digitador)+
 datatable(vac_digitador)
 ```
 
-<!-- # vac_ct <- SharedData$new(vac_digitador, key = ~mes) -->
-<!-- #vac_dt <- datatable(vac_ct) -->
-<!-- #vac_dt -->
 
-<!-- vac_ct <- SharedData$new(vac_digitador, key = ~mes) -->
-<!-- ggplotly(ggplot(vac_ct)+ -->
-<!--   geom_col(aes(Provincia.Sitio, Media_CUV_digitados))+ -->
-<!--   theme(axis.text.x = element_text(angle=90))+ -->
-<!--   facet_wrap(~Tipo.Vacunación, ncol=1)) -->
+```{r include=FALSE, eval=FALSE}
+# Quantiles leaflet
+mypalq <- colorQuantile(palette = "viridis", na.color = "#ffffff", domain = round(ec3@data$cantidad,0))
+
+map_q <- leaflet(options = leafletOptions(zoomControl = FALSE)) %>%
+   addProviderTiles("OpenStreetMap.Mapnik") %>%
+  setView(lat = -1.7, lng = -78.5, zoom = 7) %>%
+   addPolygons(data = ec3, stroke = FALSE, smoothFactor = 0.5, fillOpacity = 0.7,
+               fillColor = ~ mypalq(ec3@data$cantidad),
+               popup = paste("Terr: ", ec3@data$pp, "<br>",
+                             "Cant: ", ec3@data$cantidad, "<br>")) %>%
+   leaflet::addLegend(position = "bottomright", pal = mypalq, values = round(ec3@data$cantidad,0),
+                      labFormat = function(type, cuts, p) {
+                        n = length(cuts)
+                        paste0(cuts[-n], " &ndash; ", cuts[-1])
+                      }
+                      ,
+                      title = "<p>N° animales vacunados </p><p>Quantil</p>", opacity = 0.9)
+ map_q
+```
 
 
-
-
-```{r}
+```{r, eval=FALSE, include=FALSE}
 vigi <- vac %>%
   group_by(provincia = Provincia.Sitio, 
            canton = Cantón.Sitio, 
@@ -473,10 +525,33 @@ vigi <- vac %>%
   summarise(cantidad=length(unique(Identificador.Producto)))
 
 source("~/Dropbox/1.Epidat/Consultoria ASPE/Informes dinámicos/cvmppc/passthemap_guia.R")
+
+colnames(ec3@data)
+
+ec3@data <- ec3@data[c(1,9,11,13,15)]
+ec3 <- ms_simplify(ec3)
+
+summary(ec3@data$cantidad)
+
+ec3$id <- rownames(ec3@data)
+
+map <- fortify(ec3)
+
+map$cantidad <- ec3@data$cantidad[match(map$id, ec3$id)]
+rm(ec3)
+
+ggplot(map, aes(x=long, y=lat, group = group)) + 
+  geom_polygon(aes(fill=cantidad))+
+  geom_path(aes(x=long, y=lat, group=group),
+            colour="black", size=0.1)+
+  scale_fill_viridis_c(na.value="grey99") +
+  xlim(-81.1,-75.1)+
+  theme_minimal()
+
 ```
 
-```{r message=FALSE, warning=FALSE}
-# Quantiles
-mapview(ec3, zcol = "cantidad")
-```
-
+# Créditos 
+Acosta, A. PhD<sup>1</sup>; Camargo, G. DVM<sup>1</sup>, Gagete, B. DVM MSc<sup>1</sup>, Pisuña, L. DVM<sup>2</sup>, Guerra S. DVM<sup>2</sup>, Zambrano C. ENG<sup>2</sup>. 
+**Universidad São Paulo<sup>1</sup>**: Proyecto Análisis del sistema de vigilancia de la Peste porcina clásica en el Ecuador <https://shorturl.at/ejny7>. 
+**Agencia de regulación y control-AGROCALIDAD<sup>2</sup>**.
+Apoyo: **Asociación de porcicultores** <https://aspe.org.ec/>. Jornadas de transferencia tecnológica para la erradicación de la PPC 2023 <https://alfredojavier55.github.io/JTTPPC/>
